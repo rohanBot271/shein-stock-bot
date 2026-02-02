@@ -1,6 +1,8 @@
 import asyncio
 import os
 import requests
+import re
+import json
 from datetime import datetime
 from telegram import Bot
 
@@ -10,21 +12,8 @@ from telegram import Bot
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "1234416602"
 
-# This is Shein's category API (used by their app)
-API_URL = "https://api-service.shein.com/v2/category/tree"
-print("USING API:", API_URL)
-# Category params (these match your SheinVerse page)
-BASE_PARAMS = {
-    "cat_id": "37961",
-    "spu_cate_id": "5939",
-    "page": 1,
-    "limit": 1,
-    "country": "IN",
-    "language": "en",
-    "currency": "INR"
-}
-
-CHECK_INTERVAL = 10  # seconds (FAST + SAFE)
+PAGE_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
+CHECK_INTERVAL = 10  # seconds
 
 if not BOT_TOKEN:
     raise Exception("BOT_TOKEN is not set")
@@ -35,45 +24,47 @@ last_men = 0
 last_women = 0
 
 # ========================
-# API FETCH
+# FETCH + PARSE
 # ========================
 def get_stock_counts():
     headers = {
-        "User-Agent": "SHEIN/9.6.0 (iPhone; iOS 16.0)",
-        "Accept": "application/json",
-        "Referer": "https://www.sheinindia.in/",
-        "Origin": "https://www.sheinindia.in"
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "text/html"
     }
 
-    params = {
-        "country": "IN",
-        "language": "en"
-    }
+    html = requests.get(PAGE_URL, headers=headers, timeout=15).text
 
-    response = requests.get(API_URL, params=params, headers=headers, timeout=10)
-    response.raise_for_status()
+    # Shein embeds data in JSON inside script tags
+    match = re.search(r'<script[^>]*type="application/json"[^>]*>(.*?)</script>', html, re.S)
 
-    data = response.json()
+    if not match:
+        raise Exception("JSON data block not found")
+
+    data = json.loads(match.group(1))
 
     men = 0
     women = 0
 
-    # Walk category tree
-    def walk(categories):
+    # Walk the embedded data structure
+    def walk(obj):
         nonlocal men, women
-        for cat in categories:
-            name = cat.get("name", "").lower()
-            count = cat.get("goods_count", 0)
+        if isinstance(obj, dict):
+            name = str(obj.get("name", "")).lower()
+            count = obj.get("goods_count")
 
-            if "men" in name:
-                men = int(count)
-            if "women" in name:
-                women = int(count)
+            if count is not None:
+                if "men" in name:
+                    men = int(count)
+                if "women" in name:
+                    women = int(count)
 
-            if "children" in cat:
-                walk(cat["children"])
+            for v in obj.values():
+                walk(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
 
-    walk(data["info"]["categories"])
+    walk(data)
 
     return men, women
 
@@ -103,7 +94,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 ⏰ {now}
 
 Direct Link:
-https://www.sheinindia.in/c/sverse-5939-37961
+{PAGE_URL}
 """
 
     await bot.send_message(chat_id=CHAT_ID, text=message)
@@ -114,7 +105,7 @@ https://www.sheinindia.in/c/sverse-5939-37961
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running (API mode)...")
+    print("🤖 Shein Bot running (HTML JSON mode)...")
 
     while True:
         try:
