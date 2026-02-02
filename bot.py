@@ -12,7 +12,7 @@ CHAT_ID = "1234416602"
 
 # This is Shein's category API (used by their app)
 API_URL = "https://api-service.shein.com/h5/category/get_goods_list"
-
+print("USING API:", API_URL)
 # Category params (these match your SheinVerse page)
 BASE_PARAMS = {
     "cat_id": "37961",
