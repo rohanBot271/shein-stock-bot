@@ -1,6 +1,8 @@
 import asyncio
 import os
 import requests
+import json
+import re
 from datetime import datetime
 from telegram import Bot
 
@@ -24,31 +26,50 @@ bot = Bot(token=BOT_TOKEN)
 last_men = None
 last_women = None
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "text/html",
+    "Accept-Language": "en-IN,en;q=0.9"
+}
+
 # ========================
-# FETCH STOCK COUNTS (HTML METHOD)
+# FETCH STOCK COUNTS
 # ========================
 def get_stock_counts():
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "text/html"
-    }
+    response = requests.get(PAGE_URL, headers=HEADERS, timeout=15)
+    html = response.text
 
-    html = requests.get(PAGE_URL, headers=headers, timeout=15).text
+    # Find __NEXT_DATA__ JSON
+    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
+    if not match:
+        raise Exception("NEXT_DATA block not found")
 
+    data = json.loads(match.group(1))
+
+    # Walk JSON to find counts
     men = 0
     women = 0
 
-    # Very simple text-based detection
-    for line in html.splitlines():
-        l = line.lower()
-        if "men" in l and any(c.isdigit() for c in l):
-            nums = [int(s) for s in l.split() if s.isdigit()]
-            if nums:
-                men = nums[0]
-        if "women" in l and any(c.isdigit() for c in l):
-            nums = [int(s) for s in l.split() if s.isdigit()]
-            if nums:
-                women = nums[0]
+    def walk(obj):
+        nonlocal men, women
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, (dict, list)):
+                    walk(v)
+                if k.lower() in ["men", "male"]:
+                    if isinstance(v, int):
+                        men = v
+                if k.lower() in ["women", "female"]:
+                    if isinstance(v, int):
+                        women = v
+        elif isinstance(obj, list):
+            for i in obj:
+                walk(i)
+
+    walk(data)
+
+    if men == 0 and women == 0:
+        raise Exception("Stock numbers not found in page data")
 
     return men, women
 
@@ -89,7 +110,7 @@ Direct Link:
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running on Railway...")
+    print("🤖 Shein Bot running on Railway (JSON mode)...")
 
     while True:
         try:
