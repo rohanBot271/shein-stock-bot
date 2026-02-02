@@ -11,28 +11,22 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 if not BOT_TOKEN:
-    raise Exception("BOT_TOKEN not set in Railway / Render Environment Variables")
-
+    raise Exception("BOT_TOKEN not set in Railway Variables")
 if not CHAT_ID:
-    raise Exception("CHAT_ID not set in Railway / Render Environment Variables")
+    raise Exception("CHAT_ID not set in Railway Variables")
 
-# SHEIN GLOBAL API (WORKING)
-CATEGORY_API = "https://api-service.shein.com/galaxy/marketing/v1/category/goods"
+# Your category link
+CATEGORY_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
 
-# CATEGORY SETTINGS
-CAT_ID = "37961"
-SPU_CATE_ID = "5939"
-COUNTRY = "IN"
+# Public search API (STILL WORKS)
+SEARCH_API = "https://www.shein.com/api/search/search"
 
 CHECK_INTERVAL = 20
 
 HEADERS = {
-    "User-Agent": "SHEIN/9.1.0 (Android 13)",
+    "User-Agent": "Mozilla/5.0",
     "Accept": "application/json",
-    "Origin": "https://www.shein.com",
-    "Referer": "https://www.shein.com/",
-    "x-platform": "mobile",
-    "x-country": COUNTRY
+    "Referer": "https://www.shein.com/"
 }
 
 bot = Bot(token=BOT_TOKEN)
@@ -43,26 +37,22 @@ last_stock = None
 # ======================
 
 def get_stock():
-    payload = {
-        "catId": CAT_ID,
-        "spuCateId": SPU_CATE_ID,
+    params = {
+        "url": CATEGORY_URL,
         "page": 1,
-        "pageSize": 1,
-        "country": COUNTRY,
-        "language": "en"
+        "limit": 1
     }
 
-    r = requests.post(CATEGORY_API, headers=HEADERS, json=payload, timeout=15)
+    r = requests.get(SEARCH_API, headers=HEADERS, params=params, timeout=15)
     r.raise_for_status()
 
     data = r.json()
 
-    # Path used by SHEIN mobile apps
-    total = (
-        data.get("data", {})
-            .get("pageInfo", {})
-            .get("total", 0)
-    )
+    # SHEIN returns total count here
+    total = data.get("info", {}).get("total", None)
+
+    if total is None:
+        raise Exception("Stock count not found in API response")
 
     return int(total)
 
@@ -80,7 +70,7 @@ async def send(msg):
 async def main():
     global last_stock
 
-    print("🤖 Shein Stock Bot running (Global API mode)...")
+    print("🤖 Shein Stock Bot running (Public API mode)...")
 
     try:
         last_stock = get_stock()
@@ -101,11 +91,11 @@ async def main():
                 emoji = "📈" if diff > 0 else "📉"
 
                 msg = (
-                    f"{emoji} STOCK CHANGED\n\n"
+                    f"{emoji} SHEIN STOCK CHANGED\n\n"
                     f"Previous: {last_stock}\n"
                     f"Current: {current}\n"
                     f"Change: {diff:+}\n\n"
-                    f"🔗 https://www.sheinindia.in/c/sverse-5939-37961"
+                    f"🔗 {CATEGORY_URL}"
                 )
 
                 await send(msg)
