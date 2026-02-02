@@ -16,56 +16,62 @@ if not BOT_TOKEN:
 if not CHAT_ID:
     raise Exception("CHAT_ID not set in Railway / Render Environment Variables")
 
-# SHEIN GLOBAL MOBILE API
-CATEGORY_API = "https://api-service.shein.com/h5/category/get_goods_list"
+# SHEIN GLOBAL API (WORKING)
+CATEGORY_API = "https://api-service.shein.com/galaxy/marketing/v1/category/goods"
 
-# PRODUCT CATEGORY SETTINGS
+# CATEGORY SETTINGS
 CAT_ID = "37961"
 SPU_CATE_ID = "5939"
 COUNTRY = "IN"
 
-CHECK_INTERVAL = 20  # seconds (FAST)
+CHECK_INTERVAL = 20
 
 HEADERS = {
-    "User-Agent": "SHEIN/8.9.2 (Android 12)",
+    "User-Agent": "SHEIN/9.1.0 (Android 13)",
     "Accept": "application/json",
     "Origin": "https://www.shein.com",
     "Referer": "https://www.shein.com/",
-    "x-platform": "mobile"
+    "x-platform": "mobile",
+    "x-country": COUNTRY
 }
 
-# ======================
-# BOT
-# ======================
-
 bot = Bot(token=BOT_TOKEN)
-
 last_stock = None
 
+# ======================
+# FETCH STOCK
+# ======================
 
 def get_stock():
-    params = {
-        "cat_id": CAT_ID,
-        "spu_cate_id": SPU_CATE_ID,
+    payload = {
+        "catId": CAT_ID,
+        "spuCateId": SPU_CATE_ID,
         "page": 1,
-        "limit": 1,
+        "pageSize": 1,
         "country": COUNTRY,
-        "language": "en",
-        "currency": "INR"
+        "language": "en"
     }
 
-    r = requests.get(CATEGORY_API, headers=HEADERS, params=params, timeout=15)
+    r = requests.post(CATEGORY_API, headers=HEADERS, json=payload, timeout=15)
     r.raise_for_status()
 
     data = r.json()
 
-    total = data.get("info", {}).get("total", 0)
+    # Path used by SHEIN mobile apps
+    total = (
+        data.get("data", {})
+            .get("pageInfo", {})
+            .get("total", 0)
+    )
+
     return int(total)
 
+# ======================
+# TELEGRAM SEND
+# ======================
 
 async def send(msg):
     await bot.send_message(chat_id=CHAT_ID, text=msg)
-
 
 # ======================
 # MAIN LOOP
@@ -74,7 +80,7 @@ async def send(msg):
 async def main():
     global last_stock
 
-    print("🤖 Shein Stock Bot running (API mode)...")
+    print("🤖 Shein Stock Bot running (Global API mode)...")
 
     try:
         last_stock = get_stock()
@@ -88,24 +94,18 @@ async def main():
     while True:
         try:
             current = get_stock()
-
             print(f"Checked: {current}")
 
             if current != last_stock:
                 diff = current - last_stock
-
-                if diff > 0:
-                    emoji = "📈"
-                    change = f"+{diff}"
-                else:
-                    emoji = "📉"
-                    change = f"{diff}"
+                emoji = "📈" if diff > 0 else "📉"
 
                 msg = (
                     f"{emoji} STOCK CHANGED\n\n"
                     f"Previous: {last_stock}\n"
                     f"Current: {current}\n"
-                    f"Change: {change}"
+                    f"Change: {diff:+}\n\n"
+                    f"🔗 https://www.sheinindia.in/c/sverse-5939-37961"
                 )
 
                 await send(msg)
@@ -116,7 +116,6 @@ async def main():
             await send(f"⚠️ Error:\n{e}")
 
         await asyncio.sleep(CHECK_INTERVAL)
-
 
 # ======================
 # START
