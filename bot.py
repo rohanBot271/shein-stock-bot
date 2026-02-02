@@ -11,7 +11,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "1234416602"
 
 # This is Shein's category API (used by their app)
-API_URL = "https://api.shein.com/h5/category/get_goods_list"
+API_URL = "https://api-service.shein.com/h5/category/get_goods_list"
 
 # Category params (these match your SheinVerse page)
 BASE_PARAMS = {
