@@ -1,19 +1,21 @@
 import asyncio
 import os
 import requests
-import json
-import re
 from datetime import datetime
 from telegram import Bot
 
 # ========================
-# CONFIG (Railway Variables)
+# CONFIG
 # ========================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 
-PAGE_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
-CHECK_INTERVAL = 10  # seconds
+CATEGORY_API = "https://m.sheinindia.in/api/category/get_goods_list"
+
+CATEGORY_ID = "37961"
+SUB_CATEGORY_ID = "5939"
+
+CHECK_INTERVAL = 10
 
 if not BOT_TOKEN:
     raise Exception("BOT_TOKEN not set in Railway Variables")
@@ -27,49 +29,45 @@ last_men = None
 last_women = None
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "text/html",
-    "Accept-Language": "en-IN,en;q=0.9"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 12; Mobile)",
+    "Accept": "application/json",
+    "Referer": "https://m.sheinindia.in/"
 }
 
 # ========================
 # FETCH STOCK COUNTS
 # ========================
 def get_stock_counts():
-    response = requests.get(PAGE_URL, headers=HEADERS, timeout=15)
-    html = response.text
+    params = {
+        "cat_id": CATEGORY_ID,
+        "spu_cate_id": SUB_CATEGORY_ID,
+        "page": 1,
+        "limit": 200
+    }
 
-    # Find __NEXT_DATA__ JSON
-    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
-    if not match:
-        raise Exception("NEXT_DATA block not found")
+    r = requests.get(CATEGORY_API, headers=HEADERS, params=params, timeout=15)
 
-    data = json.loads(match.group(1))
+    if r.status_code != 200:
+        raise Exception(f"API status {r.status_code}")
 
-    # Walk JSON to find counts
+    data = r.json()
+
+    goods = data.get("info", {}).get("goods_list", [])
+
     men = 0
     women = 0
 
-    def walk(obj):
-        nonlocal men, women
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if isinstance(v, (dict, list)):
-                    walk(v)
-                if k.lower() in ["men", "male"]:
-                    if isinstance(v, int):
-                        men = v
-                if k.lower() in ["women", "female"]:
-                    if isinstance(v, int):
-                        women = v
-        elif isinstance(obj, list):
-            for i in obj:
-                walk(i)
+    for item in goods:
+        gender = str(item.get("gender", "")).lower()
+        stock = int(item.get("stock", 0))
 
-    walk(data)
+        if "men" in gender or "male" in gender:
+            men += stock
+        elif "women" in gender or "female" in gender:
+            women += stock
 
     if men == 0 and women == 0:
-        raise Exception("Stock numbers not found in page data")
+        raise Exception("Stock data not found in API response")
 
     return men, women
 
@@ -99,7 +97,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 ⏰ {now}
 
 Direct Link:
-{PAGE_URL}
+https://www.sheinindia.in/c/sverse-5939-37961
 """
 
     await bot.send_message(chat_id=CHAT_ID, text=message)
@@ -110,7 +108,7 @@ Direct Link:
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running on Railway (JSON mode)...")
+    print("🤖 Shein Bot running on Railway (Mobile API mode)...")
 
     while True:
         try:
