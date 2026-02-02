@@ -11,7 +11,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "1234416602"
 
 # This is Shein's category API (used by their app)
-API_URL = "https://api-service.shein.com/h5/category/get_goods_list"
+API_URL = "https://api-service.shein.com/v2/category/tree"
 print("USING API:", API_URL)
 # Category params (these match your SheinVerse page)
 BASE_PARAMS = {
@@ -39,29 +39,41 @@ last_women = 0
 # ========================
 def get_stock_counts():
     headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json"
+        "User-Agent": "SHEIN/9.6.0 (iPhone; iOS 16.0)",
+        "Accept": "application/json",
+        "Referer": "https://www.sheinindia.in/",
+        "Origin": "https://www.sheinindia.in"
     }
 
-    response = requests.get(API_URL, params=BASE_PARAMS, headers=headers, timeout=10)
+    params = {
+        "country": "IN",
+        "language": "en"
+    }
+
+    response = requests.get(API_URL, params=params, headers=headers, timeout=10)
     response.raise_for_status()
 
     data = response.json()
 
-    # Shein returns category info in this section
-    category_list = data["info"]["filter"]["category"]
-
     men = 0
     women = 0
 
-    for cat in category_list:
-        name = cat["name"].lower()
-        count = int(cat["goods_count"])
+    # Walk category tree
+    def walk(categories):
+        nonlocal men, women
+        for cat in categories:
+            name = cat.get("name", "").lower()
+            count = cat.get("goods_count", 0)
 
-        if "men" in name:
-            men = count
-        if "women" in name:
-            women = count
+            if "men" in name:
+                men = int(count)
+            if "women" in name:
+                women = int(count)
+
+            if "children" in cat:
+                walk(cat["children"])
+
+    walk(data["info"]["categories"])
 
     return men, women
 
