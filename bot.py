@@ -29,23 +29,28 @@ last_women = 0
 def get_stock_counts():
     headers = {
         "User-Agent": "Mozilla/5.0",
-        "Accept": "text/html"
+        "Accept": "text/html",
+        "Referer": "https://www.sheinindia.in/"
     }
 
     html = requests.get(PAGE_URL, headers=headers, timeout=15).text
 
-    # Shein embeds data in JSON inside script tags
-    match = re.search(r'<script[^>]*type="application/json"[^>]*>(.*?)</script>', html, re.S)
+    # Next.js embedded JSON
+    match = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html,
+        re.S
+    )
 
     if not match:
-        raise Exception("JSON data block not found")
+        raise Exception("NEXT_DATA block not found")
 
     data = json.loads(match.group(1))
 
     men = 0
     women = 0
 
-    # Walk the embedded data structure
+    # Recursively walk the JSON tree
     def walk(obj):
         nonlocal men, women
         if isinstance(obj, dict):
@@ -60,6 +65,7 @@ def get_stock_counts():
 
             for v in obj.values():
                 walk(v)
+
         elif isinstance(obj, list):
             for item in obj:
                 walk(item)
