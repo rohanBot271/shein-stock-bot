@@ -1,12 +1,9 @@
 import asyncio
-import time
 import re
 import os
 from datetime import datetime
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from telegram import Bot
+from playwright.async_api import async_playwright
 
 # ========================
 # CONFIG
@@ -15,25 +12,8 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "1234416602"
 
 SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
-CHECK_INTERVAL = 8  # seconds
+CHECK_INTERVAL = 15  # seconds
 
-# ========================
-# BROWSER SETUP
-# ========================
-options = webdriver.ChromeOptions()
-options.binary_location = "/usr/bin/chromium"
-options.add_argument("--headless")
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument("--disable-blink-features=AutomationControlled")
-
-
-driver = webdriver.Chrome(options=options)
-
-
-# ========================
-# TELEGRAM BOT
-# ========================
 bot = Bot(token=BOT_TOKEN)
 
 last_men = 0
@@ -42,17 +22,16 @@ last_women = 0
 # ========================
 # SCRAPER
 # ========================
-def get_stock_counts():
-    driver.get(SHEIN_URL)
-    time.sleep(6)
+async def get_stock_counts(page):
+    await page.goto(SHEIN_URL, wait_until="networkidle")
 
-    elements = driver.find_elements(By.XPATH, "//label")
+    labels = await page.locator("label").all()
 
     men = None
     women = None
 
-    for el in elements:
-        text = el.text.strip().lower()
+    for label in labels:
+        text = (await label.inner_text()).lower().strip()
 
         if text.startswith("women"):
             match = re.search(r"\((\d+)\)", text)
@@ -106,30 +85,34 @@ Direct Link:
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running...")
+    print("🤖 Shein Bot running (Playwright)...")
 
-    while True:
-        try:
-            men, women = get_stock_counts()
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
 
-            men_diff = men - last_men
-            women_diff = women - last_women
+        while True:
+            try:
+                men, women = await get_stock_counts(page)
 
-            print("Checked:", men, women)
+                men_diff = men - last_men
+                women_diff = women - last_women
 
-            if men_diff != 0 or women_diff != 0:
-                change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
-                await send_update(men, women, men_diff, women_diff, change_type)
+                print("Checked:", men, women)
 
-            last_men = men
-            last_women = women
+                if men_diff != 0 or women_diff != 0:
+                    change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
+                    await send_update(men, women, men_diff, women_diff, change_type)
 
-        except Exception as e:
-            print("Error:", e)
+                last_men = men
+                last_women = women
 
-        await asyncio.sleep(CHECK_INTERVAL)
+            except Exception as e:
+                print("Error:", e)
+
+            await asyncio.sleep(CHECK_INTERVAL)
 
 # ========================
-# START BOT
+# START
 # ========================
 asyncio.run(main())
