@@ -1,26 +1,8 @@
 import asyncio
-import re
 import os
-import subprocess
+import requests
 from datetime import datetime
 from telegram import Bot
-from playwright.async_api import async_playwright
-
-# ========================
-# AUTO-INSTALL PLAYWRIGHT BROWSER
-# ========================
-def ensure_browser():
-    try:
-        print("🔍 Ensuring Playwright browser is installed...")
-        subprocess.run(
-            ["playwright", "install", "chromium"],
-            check=True
-        )
-        print("✅ Playwright browser ready")
-    except Exception as e:
-        print("⚠️ Browser install error:", e)
-
-ensure_browser()
 
 # ========================
 # CONFIG
@@ -28,8 +10,21 @@ ensure_browser()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = "1234416602"
 
-SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
-CHECK_INTERVAL = 15  # seconds
+# This is Shein's category API (used by their app)
+API_URL = "https://api.shein.com/h5/category/get_goods_list"
+
+# Category params (these match your SheinVerse page)
+BASE_PARAMS = {
+    "cat_id": "37961",
+    "spu_cate_id": "5939",
+    "page": 1,
+    "limit": 1,
+    "country": "IN",
+    "language": "en",
+    "currency": "INR"
+}
+
+CHECK_INTERVAL = 10  # seconds (FAST + SAFE)
 
 if not BOT_TOKEN:
     raise Exception("BOT_TOKEN is not set")
@@ -40,31 +35,33 @@ last_men = 0
 last_women = 0
 
 # ========================
-# SCRAPER
+# API FETCH
 # ========================
-async def get_stock_counts(page):
-    await page.goto(SHEIN_URL, wait_until="networkidle")
+def get_stock_counts():
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
 
-    labels = await page.locator("label").all()
+    response = requests.get(API_URL, params=BASE_PARAMS, headers=headers, timeout=10)
+    response.raise_for_status()
 
-    men = None
-    women = None
+    data = response.json()
 
-    for label in labels:
-        text = (await label.inner_text()).lower().strip()
+    # Shein returns category info in this section
+    category_list = data["info"]["filter"]["category"]
 
-        if text.startswith("women"):
-            match = re.search(r"\((\d+)\)", text)
-            if match:
-                women = int(match.group(1))
+    men = 0
+    women = 0
 
-        if text.startswith("men"):
-            match = re.search(r"\((\d+)\)", text)
-            if match:
-                men = int(match.group(1))
+    for cat in category_list:
+        name = cat["name"].lower()
+        count = int(cat["goods_count"])
 
-    if men is None or women is None:
-        raise Exception("Could not find Men/Women counts")
+        if "men" in name:
+            men = count
+        if "women" in name:
+            women = count
 
     return men, women
 
@@ -94,7 +91,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 ⏰ {now}
 
 Direct Link:
-{SHEIN_URL}
+https://www.sheinindia.in/c/sverse-5939-37961
 """
 
     await bot.send_message(chat_id=CHAT_ID, text=message)
@@ -105,32 +102,28 @@ Direct Link:
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running (Playwright, cloud-safe)...")
+    print("🤖 Shein Bot running (API mode)...")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+    while True:
+        try:
+            men, women = get_stock_counts()
 
-        while True:
-            try:
-                men, women = await get_stock_counts(page)
+            men_diff = men - last_men
+            women_diff = women - last_women
 
-                men_diff = men - last_men
-                women_diff = women - last_women
+            print("Checked:", men, women)
 
-                print("Checked:", men, women)
+            if men_diff != 0 or women_diff != 0:
+                change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
+                await send_update(men, women, men_diff, women_diff, change_type)
 
-                if men_diff != 0 or women_diff != 0:
-                    change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
-                    await send_update(men, women, men_diff, women_diff, change_type)
+            last_men = men
+            last_women = women
 
-                last_men = men
-                last_women = women
+        except Exception as e:
+            print("Error:", e)
 
-            except Exception as e:
-                print("Error:", e)
-
-            await asyncio.sleep(CHECK_INTERVAL)
+        await asyncio.sleep(CHECK_INTERVAL)
 
 # ========================
 # START
