@@ -1,9 +1,26 @@
 import asyncio
 import re
 import os
+import subprocess
 from datetime import datetime
 from telegram import Bot
 from playwright.async_api import async_playwright
+
+# ========================
+# AUTO-INSTALL PLAYWRIGHT BROWSER
+# ========================
+def ensure_browser():
+    try:
+        print("🔍 Ensuring Playwright browser is installed...")
+        subprocess.run(
+            ["playwright", "install", "chromium"],
+            check=True
+        )
+        print("✅ Playwright browser ready")
+    except Exception as e:
+        print("⚠️ Browser install error:", e)
+
+ensure_browser()
 
 # ========================
 # CONFIG
@@ -13,6 +30,9 @@ CHAT_ID = "1234416602"
 
 SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
 CHECK_INTERVAL = 15  # seconds
+
+if not BOT_TOKEN:
+    raise Exception("BOT_TOKEN is not set")
 
 bot = Bot(token=BOT_TOKEN)
 
@@ -85,7 +105,7 @@ Direct Link:
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running (Playwright)...")
+    print("🤖 Shein Bot running (Playwright, cloud-safe)...")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
