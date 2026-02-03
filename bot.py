@@ -1,61 +1,73 @@
 import asyncio
 import requests
+import json
 import re
 from datetime import datetime
 from telegram import Bot
 
-# ========================
+# =====================
 # CONFIG
-# ========================
-
+# =====================
 BOT_TOKEN = "7961340106:AAGHpgBVEY2RUXxzbEf-M0k2t-D9ewPvnd8"
-
-# YOUR CHAT ID
-CHAT_IDS = ["1234416602"]
+CHAT_IDS = ["1234416602"]  # add more like ["123", "456"]
 
 SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
-
-CHECK_INTERVAL = 15  # seconds (safe for cloud)
+CHECK_INTERVAL = 30  # seconds
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 12)",
-    "Accept": "text/html"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Accept-Language": "en-US,en;q=0.9"
 }
 
-if not BOT_TOKEN or "PUT_YOUR_BOT_TOKEN_HERE" in BOT_TOKEN:
-    raise Exception("❌ Set your BOT_TOKEN before running this bot")
-
-# ========================
+# =====================
 # TELEGRAM
-# ========================
+# =====================
 bot = Bot(token=BOT_TOKEN)
 
-last_men = None
-last_women = None
+last_men = 0
+last_women = 0
 
-# ========================
-# SCRAPER
-# ========================
+# =====================
+# SHEIN SCRAPER
+# =====================
 def get_stock_counts():
-    response = requests.get(SHEIN_URL, headers=HEADERS, timeout=15)
-    response.raise_for_status()
-    html = response.text
+    res = requests.get(SHEIN_URL, headers=HEADERS, timeout=20)
 
-    # Find text like: Men (23) and Women (177)
-    men_match = re.search(r"Men\s*\((\d+)\)", html, re.IGNORECASE)
-    women_match = re.search(r"Women\s*\((\d+)\)", html, re.IGNORECASE)
+    if res.status_code != 200:
+        raise Exception(f"HTTP {res.status_code}")
+
+    html = res.text
+
+    # Find Next.js JSON block
+    match = re.search(r'__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
+
+    if not match:
+        raise Exception("NEXT_DATA block not found")
+
+    data = json.loads(match.group(1))
+
+    # Navigate SHEIN data tree safely
+    props = data.get("props", {})
+    page = props.get("pageProps", {})
+    initial = page.get("initialState", {})
+
+    raw = json.dumps(initial)
+
+    # Find numbers like "Men (23)" and "Women (177)"
+    men_match = re.search(r'Men\s*\((\d+)\)', raw, re.I)
+    women_match = re.search(r'Women\s*\((\d+)\)', raw, re.I)
 
     if not men_match or not women_match:
-        raise Exception("Stock data not found in page")
+        raise Exception("Stock numbers not found in JSON")
 
     men = int(men_match.group(1))
     women = int(women_match.group(1))
 
     return men, women
 
-# ========================
+# =====================
 # TELEGRAM MESSAGE
-# ========================
+# =====================
 async def send_update(men, women, men_diff, women_diff, change_type):
     now = datetime.now().strftime("%d %b %Y, %I:%M %p")
 
@@ -70,56 +82,48 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 
     title = "🛒 Shein Stock Added" if change_type == "up" else "🛒 Shein Stock Removed"
 
-    message = f"""
-{title}
+    message = f"""{title}
 
 {men_line}
 {women_line}
 
 ⏰ {now}
-
-Direct Link:
-{SHEIN_URL}
+🔗 {SHEIN_URL}
 """
 
     for chat_id in CHAT_IDS:
         await bot.send_message(chat_id=chat_id, text=message)
 
-# ========================
+# =====================
 # MAIN LOOP
-# ========================
+# =====================
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running (Cloud-safe HTML mode)...")
+    print("🤖 Shein Bot running (Cloud-safe JSON mode)...")
 
     while True:
         try:
             men, women = get_stock_counts()
 
-            if last_men is None:
-                last_men = men
-                last_women = women
-                print("Initial stock:", men, women)
-            else:
-                men_diff = men - last_men
-                women_diff = women - last_women
+            men_diff = men - last_men
+            women_diff = women - last_women
 
-                print("Checked:", men, women)
+            print("Checked:", men, women)
 
-                if men_diff or women_diff:
-                    change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
-                    await send_update(men, women, men_diff, women_diff, change_type)
+            if men_diff or women_diff:
+                change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
+                await send_update(men, women, men_diff, women_diff, change_type)
 
-                last_men = men
-                last_women = women
+            last_men = men
+            last_women = women
 
         except Exception as e:
             print("Error:", e)
 
         await asyncio.sleep(CHECK_INTERVAL)
 
-# ========================
-# START BOT
-# ========================
+# =====================
+# START
+# =====================
 asyncio.run(main())
