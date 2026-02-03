@@ -1,115 +1,125 @@
-import os
 import asyncio
 import requests
+import re
+from datetime import datetime
 from telegram import Bot
 
-# ======================
+# ========================
 # CONFIG
-# ======================
+# ========================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+BOT_TOKEN = "PUT_YOUR_BOT_TOKEN_HERE"
 
-if not BOT_TOKEN:
-    raise Exception("BOT_TOKEN not set in Railway Variables")
-if not CHAT_ID:
-    raise Exception("CHAT_ID not set in Railway Variables")
+# YOUR CHAT ID
+CHAT_IDS = ["1234416602"]
 
-# Your category link
-CATEGORY_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
+SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
 
-# Public search API (STILL WORKS)
-SEARCH_API = "https://www.shein.com/api/search/search"
-
-CHECK_INTERVAL = 20
+CHECK_INTERVAL = 15  # seconds (safe for cloud)
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json",
-    "Referer": "https://www.shein.com/"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 12)",
+    "Accept": "text/html"
 }
 
+if not BOT_TOKEN or "PUT_YOUR_BOT_TOKEN_HERE" in BOT_TOKEN:
+    raise Exception("❌ Set your BOT_TOKEN before running this bot")
+
+# ========================
+# TELEGRAM
+# ========================
 bot = Bot(token=BOT_TOKEN)
-last_stock = None
 
-# ======================
-# FETCH STOCK
-# ======================
+last_men = None
+last_women = None
 
-def get_stock():
-    params = {
-        "url": CATEGORY_URL,
-        "page": 1,
-        "limit": 1
-    }
+# ========================
+# SCRAPER
+# ========================
+def get_stock_counts():
+    response = requests.get(SHEIN_URL, headers=HEADERS, timeout=15)
+    response.raise_for_status()
+    html = response.text
 
-    r = requests.get(SEARCH_API, headers=HEADERS, params=params, timeout=15)
-    r.raise_for_status()
+    # Find text like: Men (23) and Women (177)
+    men_match = re.search(r"Men\s*\((\d+)\)", html, re.IGNORECASE)
+    women_match = re.search(r"Women\s*\((\d+)\)", html, re.IGNORECASE)
 
-    data = r.json()
+    if not men_match or not women_match:
+        raise Exception("Stock data not found in page")
 
-    # SHEIN returns total count here
-    total = data.get("info", {}).get("total", None)
+    men = int(men_match.group(1))
+    women = int(women_match.group(1))
 
-    if total is None:
-        raise Exception("Stock count not found in API response")
+    return men, women
 
-    return int(total)
+# ========================
+# TELEGRAM MESSAGE
+# ========================
+async def send_update(men, women, men_diff, women_diff, change_type):
+    now = datetime.now().strftime("%d %b %Y, %I:%M %p")
 
-# ======================
-# TELEGRAM SEND
-# ======================
+    arrow_up = "⬆️"
+    arrow_down = "⬇️"
 
-async def send(msg):
-    await bot.send_message(chat_id=CHAT_ID, text=msg)
+    men_arrow = arrow_up if men_diff > 0 else arrow_down if men_diff < 0 else ""
+    women_arrow = arrow_up if women_diff > 0 else arrow_down if women_diff < 0 else ""
 
-# ======================
+    men_line = f"👨 Men → {men} {men_arrow} {abs(men_diff)}" if men_diff else f"👨 Men → {men}"
+    women_line = f"👩 Women → {women} {women_arrow} {abs(women_diff)}" if women_diff else f"👩 Women → {women}"
+
+    title = "🛒 Shein Stock Added" if change_type == "up" else "🛒 Shein Stock Removed"
+
+    message = f"""
+{title}
+
+{men_line}
+{women_line}
+
+⏰ {now}
+
+Direct Link:
+{SHEIN_URL}
+"""
+
+    for chat_id in CHAT_IDS:
+        await bot.send_message(chat_id=chat_id, text=message)
+
+# ========================
 # MAIN LOOP
-# ======================
-
+# ========================
 async def main():
-    global last_stock
+    global last_men, last_women
 
-    print("🤖 Shein Stock Bot running (Public API mode)...")
-
-    try:
-        last_stock = get_stock()
-        print(f"Initial stock: {last_stock}")
-        await send(f"🟢 Bot Started\nInitial Stock: {last_stock}")
-    except Exception as e:
-        print("Startup error:", e)
-        await send(f"🔴 Startup Error:\n{e}")
-        return
+    print("🤖 Shein Bot running (Cloud-safe HTML mode)...")
 
     while True:
         try:
-            current = get_stock()
-            print(f"Checked: {current}")
+            men, women = get_stock_counts()
 
-            if current != last_stock:
-                diff = current - last_stock
-                emoji = "📈" if diff > 0 else "📉"
+            if last_men is None:
+                last_men = men
+                last_women = women
+                print("Initial stock:", men, women)
+            else:
+                men_diff = men - last_men
+                women_diff = women - last_women
 
-                msg = (
-                    f"{emoji} SHEIN STOCK CHANGED\n\n"
-                    f"Previous: {last_stock}\n"
-                    f"Current: {current}\n"
-                    f"Change: {diff:+}\n\n"
-                    f"🔗 {CATEGORY_URL}"
-                )
+                print("Checked:", men, women)
 
-                await send(msg)
-                last_stock = current
+                if men_diff or women_diff:
+                    change_type = "up" if (men_diff > 0 or women_diff > 0) else "down"
+                    await send_update(men, women, men_diff, women_diff, change_type)
+
+                last_men = men
+                last_women = women
 
         except Exception as e:
             print("Error:", e)
-            await send(f"⚠️ Error:\n{e}")
 
         await asyncio.sleep(CHECK_INTERVAL)
 
-# ======================
-# START
-# ======================
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# ========================
+# START BOT
+# ========================
+asyncio.run(main())
