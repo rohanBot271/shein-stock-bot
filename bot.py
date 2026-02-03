@@ -8,7 +8,7 @@ from telegram import Bot
 # CONFIG
 # ========================
 
-BOT_TOKEN = "PUT_YOUR_BOT_TOKEN_HERE"
+BOT_TOKEN = "7961340106:AAGHpgBVEY2RUXxzbEf-M0k2t-D9ewPvnd8"
 
 # YOUR CHAT ID
 CHAT_IDS = ["1234416602"]
