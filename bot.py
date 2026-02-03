@@ -9,14 +9,18 @@ from telegram import Bot
 # CONFIG
 # =====================
 BOT_TOKEN = "7961340106:AAGHpgBVEY2RUXxzbEf-M0k2t-D9ewPvnd8"
-CHAT_IDS = ["1234416602"]  # add more like ["123", "456"]
+CHAT_IDS = ["1234416602"]
 
 SHEIN_URL = "https://www.sheinindia.in/c/sverse-5939-37961"
-CHECK_INTERVAL = 30  # seconds
+CHECK_INTERVAL = 45
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept-Language": "en-US,en;q=0.9"
+    "User-Agent": "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-IN,en;q=0.9",
+    "Referer": "https://www.sheinindia.in/",
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": "Android"
 }
 
 # =====================
@@ -31,14 +35,17 @@ last_women = 0
 # SHEIN SCRAPER
 # =====================
 def get_stock_counts():
-    res = requests.get(SHEIN_URL, headers=HEADERS, timeout=20)
+    session = requests.Session()
+    session.headers.update(HEADERS)
 
-    if res.status_code != 200:
-        raise Exception(f"HTTP {res.status_code}")
+    r = session.get(SHEIN_URL, timeout=20)
 
-    html = res.text
+    if r.status_code != 200:
+        raise Exception(f"HTTP {r.status_code}")
 
-    # Find Next.js JSON block
+    html = r.text
+
+    # Extract NextJS JSON
     match = re.search(r'__NEXT_DATA__" type="application/json">(.*?)</script>', html, re.S)
 
     if not match:
@@ -46,24 +53,19 @@ def get_stock_counts():
 
     data = json.loads(match.group(1))
 
-    # Navigate SHEIN data tree safely
-    props = data.get("props", {})
-    page = props.get("pageProps", {})
-    initial = page.get("initialState", {})
+    state = json.dumps(
+        data.get("props", {})
+            .get("pageProps", {})
+            .get("initialState", {})
+    )
 
-    raw = json.dumps(initial)
-
-    # Find numbers like "Men (23)" and "Women (177)"
-    men_match = re.search(r'Men\s*\((\d+)\)', raw, re.I)
-    women_match = re.search(r'Women\s*\((\d+)\)', raw, re.I)
+    men_match = re.search(r'Men\s*\((\d+)\)', state, re.I)
+    women_match = re.search(r'Women\s*\((\d+)\)', state, re.I)
 
     if not men_match or not women_match:
-        raise Exception("Stock numbers not found in JSON")
+        raise Exception("Stock numbers not found")
 
-    men = int(men_match.group(1))
-    women = int(women_match.group(1))
-
-    return men, women
+    return int(men_match.group(1)), int(women_match.group(1))
 
 # =====================
 # TELEGRAM MESSAGE
@@ -82,7 +84,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 
     title = "🛒 Shein Stock Added" if change_type == "up" else "🛒 Shein Stock Removed"
 
-    message = f"""{title}
+    msg = f"""{title}
 
 {men_line}
 {women_line}
@@ -92,7 +94,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 """
 
     for chat_id in CHAT_IDS:
-        await bot.send_message(chat_id=chat_id, text=message)
+        await bot.send_message(chat_id=chat_id, text=msg)
 
 # =====================
 # MAIN LOOP
@@ -100,7 +102,7 @@ async def send_update(men, women, men_diff, women_diff, change_type):
 async def main():
     global last_men, last_women
 
-    print("🤖 Shein Bot running (Cloud-safe JSON mode)...")
+    print("🤖 Shein Bot running (Mobile Emulation Mode)...")
 
     while True:
         try:
